@@ -1,0 +1,9 @@
+{
+  "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+  "training_examples": 48,
+  "validation_examples": 12,
+  "num_epochs": 3,
+  "learning_rate": 0.0002,
+  "output_dir": "finetuning/models/xcfg",
+  "training_completed": "2025-08-08T09:45:39.727990"
+}

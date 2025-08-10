@@ -1,0 +1,7 @@
+{
+  "total_examples": 60,
+  "avg_query_length": 52.8,
+  "avg_response_length": 147.91666666666666,
+  "source_file": "finetuning/data/uploads/7178d0d7-7a80-4f8a-9698-ab50eb2c8587_Excel Q & A for Model Training.xlsx",
+  "output_file": "finetuning/data/job_3d980bb4-a7ae-44c8-80d6-c89d8a89513e.jsonl"
+}

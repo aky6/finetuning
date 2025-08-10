@@ -1,0 +1,11 @@
+FROM tinyllama
+
+TEMPLATE """<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+"""
+
+PARAMETER stop <|im_end|>
+PARAMETER stop <|im_start|>
+
+SYSTEM """You are a helpful assistant that has been fine-tuned on custom question-answer data. You provide accurate, helpful responses based on your training."""

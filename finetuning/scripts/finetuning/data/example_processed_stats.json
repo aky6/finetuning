@@ -1,0 +1,7 @@
+{
+  "total_examples": 5,
+  "avg_query_length": 22.0,
+  "avg_response_length": 199.6,
+  "source_file": "../../finetuning/data/example_training_data.csv",
+  "output_file": "finetuning/data/example_processed.jsonl"
+}

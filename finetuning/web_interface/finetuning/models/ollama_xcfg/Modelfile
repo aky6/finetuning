@@ -1,0 +1,10 @@
+FROM tinyllama
+ADAPTER adapter_model.safetensors
+
+TEMPLATE """<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+"""
+
+PARAMETER stop <|im_end|>
+PARAMETER stop <|im_start|>

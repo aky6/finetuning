@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LoRA Fine-tuning Pipeline</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8" x-data="app()">
+        <!-- Header -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">LoRA Fine-tuning Pipeline</h1>
+            <p class="text-gray-600">Upload CSV data and fine-tune your Llama model with LoRA</p>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6" x-show="currentStep === 'upload'">
+            <h2 class="text-2xl font-semibold mb-4">Step 1: Upload Training Data</h2>
+            
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                <input type="file" id="csvFile" accept=".csv,.xlsx,.xls" class="hidden" @change="handleFileUpload">
+                <label for="csvFile" class="cursor-pointer">
+                    <div class="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+                        <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                    </div>
+                    <p class="text-lg font-medium text-gray-700 mb-2">Drop your CSV/Excel file here or click to upload</p>
+                    <p class="text-sm text-gray-500">File should have 2 columns: user_query, system_response</p>
+                </label>
+            </div>
+            
+            <div x-show="uploadStatus" class="mt-4 p-4 rounded" :class="uploadStatus === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
+                <p x-text="uploadMessage"></p>
+            </div>
+        </div>
+
+        <!-- Data Preview -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6" x-show="currentStep === 'preview'">
+            <h2 class="text-2xl font-semibold mb-4">Step 2: Data Preview</h2>
+            
+            <div class="mb-4">
+                <p class="text-sm text-gray-600 mb-2">
+                    <strong>File:</strong> <span x-text="csvData.filename"></span> 
+                    (<span x-text="csvData.rows"></span> rows)
+                </p>
+            </div>
+            
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <template x-for="column in csvData.columns">
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" x-text="column"></th>
+                            </template>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <template x-for="row in csvData.preview">
+                            <tr>
+                                <template x-for="column in csvData.columns">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900" x-text="row[column]"></td>
+                                </template>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="mt-6 flex space-x-4">
+                <button @click="currentStep = 'upload'" class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
+                    Back
+                </button>
+                <button @click="currentStep = 'config'" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                    Continue to Configuration
+                </button>
+            </div>
+        </div>
+
+        <!-- Training Configuration -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6" x-show="currentStep === 'config'">
+            <h2 class="text-2xl font-semibold mb-4">Step 3: Training Configuration</h2>
+            
+            <form @submit.prevent="startTraining" class="space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Training Epochs</label>
+                        <input type="number" x-model="config.epochs" min="1" max="10" class="w-full border rounded px-3 py-2">
+                        <p class="text-xs text-gray-500 mt-1">More epochs = longer training, potentially better results</p>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Batch Size</label>
+                        <input type="number" x-model="config.batch_size" min="1" max="8" class="w-full border rounded px-3 py-2">
+                        <p class="text-xs text-gray-500 mt-1">Higher batch size = more memory usage</p>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Learning Rate</label>
+                        <input type="number" x-model="config.learning_rate" step="0.0001" min="0.0001" max="0.01" class="w-full border rounded px-3 py-2">
+                        <p class="text-xs text-gray-500 mt-1">Controls how fast the model learns</p>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Model Name</label>
+                                            <select x-model="config.model_name" class="w-full border rounded px-3 py-2">
+                        <option value="TinyLlama/TinyLlama-1.1B-Chat-v1.0">TinyLlama 1.1B Chat (Fast, Recommended)</option>
+                        <option value="microsoft/DialoGPT-medium">DialoGPT Medium (774M) - Open Access</option>
+                        <option value="meta-llama/Llama-3.1-8B-Instruct">Llama 3.1 8B Instruct (Better Quality)</option>
+                        <option value="meta-llama/Llama-3.2-1B-Instruct">Llama 3.2 1B Instruct (Requires HF Access)</option>
+                        <option value="meta-llama/Llama-3.2-3B-Instruct">Llama 3.2 3B Instruct (Requires HF Access)</option>
+                        <option value="meta-llama/CodeLlama-7b-Instruct-hf">CodeLlama 7B (For Code Tasks)</option>
+                    </select>
+                    </div>
+                    
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Run Name</label>
+                        <input type="text" x-model="config.run_name" placeholder="custom-model-v1" class="w-full border rounded px-3 py-2">
+                        <p class="text-xs text-gray-500 mt-1">This will be your model name in Ollama</p>
+                    </div>
+                    
+                    <div>
+                        <label class="flex items-center">
+                            <input type="checkbox" x-model="config.use_wandb" class="mr-2">
+                            <span class="text-sm font-medium text-gray-700">Use Weights & Biases logging</span>
+                        </label>
+                        <p class="text-xs text-gray-500 mt-1">Track training metrics (requires wandb account)</p>
+                    </div>
+                </div>
+                
+                <div class="flex space-x-4">
+                    <button type="button" @click="currentStep = 'preview'" class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
+                        Back
+                    </button>
+                    <button type="submit" class="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                        Start Training
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Training Progress -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6" x-show="currentStep === 'training'">
+            <h2 class="text-2xl font-semibold mb-4">Training in Progress</h2>
+            
+            <div class="mb-6">
+                <div class="flex justify-between text-sm text-gray-600 mb-1">
+                    <span>Progress</span>
+                    <span x-text="trainingStatus.progress + '%'"></span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" :style="'width: ' + trainingStatus.progress + '%'"></div>
+                </div>
+            </div>
+            
+            <div class="mb-6">
+                <h3 class="text-lg font-medium mb-2">Status</h3>
+                <span class="px-3 py-1 rounded text-sm" 
+                      :class="trainingStatus.status === 'completed' ? 'bg-green-100 text-green-800' : 
+                              trainingStatus.status === 'failed' ? 'bg-red-100 text-red-800' : 
+                              'bg-blue-100 text-blue-800'" 
+                      x-text="trainingStatus.status"></span>
+            </div>
+            
+            <div>
+                <h3 class="text-lg font-medium mb-2">Recent Logs</h3>
+                <div class="bg-gray-900 text-green-400 p-4 rounded h-48 overflow-y-auto font-mono text-sm">
+                    <template x-for="log in trainingStatus.logs">
+                        <div>
+                            <span class="text-gray-500" x-text="new Date(log.timestamp).toLocaleTimeString()"></span>
+                            <span x-text="log.message"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            
+            <div x-show="trainingStatus.status === 'completed'" class="mt-6">
+                <button @click="importToOllama" class="px-6 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
+                    Import to Ollama
+                </button>
+            </div>
+        </div>
+
+        <!-- Jobs List -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-2xl font-semibold mb-4">Training Jobs</h2>
+            
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Job ID</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Time</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <template x-for="job in jobs">
+                            <tr class="cursor-pointer hover:bg-gray-50" @click="viewJob(job.job_id)">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900" x-text="job.job_id.substring(0, 8)"></td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="px-2 py-1 text-xs rounded" 
+                                          :class="job.status === 'completed' ? 'bg-green-100 text-green-800' : 
+                                                  job.status === 'failed' ? 'bg-red-100 text-red-800' : 
+                                                  'bg-blue-100 text-blue-800'" 
+                                          x-text="job.status"></span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900" x-text="job.progress + '%'"></td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900" x-text="job.start_time ? new Date(job.start_time).toLocaleString() : 'Not started'"></td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900" x-text="job.config?.run_name || 'N/A'"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div x-show="jobs.length === 0" class="text-center py-8 text-gray-500">
+                No training jobs yet. Start by uploading a CSV file!
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function app() {
+            return {
+                currentStep: 'upload',
+                csvData: null,
+                uploadStatus: null,
+                uploadMessage: '',
+                config: {
+                    epochs: 3,
+                    batch_size: 1,
+                    learning_rate: 0.0002,
+                    model_name: 'meta-llama/Llama-3.2-1B-Instruct',
+                    run_name: '',
+                    use_wandb: false
+                },
+                currentJobId: null,
+                trainingStatus: {
+                    progress: 0,
+                    status: 'queued',
+                    logs: []
+                },
+                jobs: [],
+                
+                init() {
+                    this.loadJobs();
+                },
+                
+                async handleFileUpload(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    
+                    try {
+                        const response = await fetch('/upload_csv', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (response.ok) {
+                            this.csvData = data;
+                            this.uploadStatus = 'success';
+                            this.uploadMessage = `Successfully uploaded ${data.filename} with ${data.rows} rows`;
+                            this.currentStep = 'preview';
+                        } else {
+                            this.uploadStatus = 'error';
+                            this.uploadMessage = data.detail;
+                        }
+                    } catch (error) {
+                        this.uploadStatus = 'error';
+                        this.uploadMessage = 'Upload failed: ' + error.message;
+                    }
+                },
+                
+                async startTraining() {
+                    if (!this.csvData) return;
+                    
+                    const formData = new FormData();
+                    formData.append('file_id', this.csvData.file_id);
+                    formData.append('epochs', this.config.epochs);
+                    formData.append('batch_size', this.config.batch_size);
+                    formData.append('learning_rate', this.config.learning_rate);
+                    formData.append('model_name', this.config.model_name);
+                    formData.append('run_name', this.config.run_name);
+                    formData.append('use_wandb', this.config.use_wandb);
+                    
+                    try {
+                        const response = await fetch('/start_training', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (response.ok) {
+                            this.currentJobId = data.job_id;
+                            this.currentStep = 'training';
+                            this.startPolling();
+                        } else {
+                            alert('Training failed: ' + data.detail);
+                        }
+                    } catch (error) {
+                        alert('Training failed: ' + error.message);
+                    }
+                },
+                
+                async startPolling() {
+                    const interval = setInterval(async () => {
+                        if (!this.currentJobId) {
+                            clearInterval(interval);
+                            return;
+                        }
+                        
+                        try {
+                            const response = await fetch(`/job_status/${this.currentJobId}`);
+                            const data = await response.json();
+                            
+                            this.trainingStatus = data;
+                            
+                            if (data.status === 'completed' || data.status === 'failed') {
+                                clearInterval(interval);
+                                this.loadJobs();
+                            }
+                        } catch (error) {
+                            console.error('Polling error:', error);
+                        }
+                    }, 2000);
+                },
+                
+                async loadJobs() {
+                    try {
+                        const response = await fetch('/jobs');
+                        const data = await response.json();
+                        this.jobs = data;
+                    } catch (error) {
+                        console.error('Failed to load jobs:', error);
+                    }
+                },
+                
+                async viewJob(jobId) {
+                    this.currentJobId = jobId;
+                    this.currentStep = 'training';
+                    
+                    try {
+                        const response = await fetch(`/job_status/${jobId}`);
+                        const data = await response.json();
+                        this.trainingStatus = data;
+                    } catch (error) {
+                        console.error('Failed to load job:', error);
+                    }
+                },
+                
+                async importToOllama() {
+                    if (!this.currentJobId) return;
+                    
+                    try {
+                        const response = await fetch(`/import_to_ollama/${this.currentJobId}`, {
+                            method: 'POST'
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (response.ok) {
+                            alert('Model imported successfully to Ollama!');
+                        } else {
+                            alert('Import failed: ' + data.message);
+                        }
+                    } catch (error) {
+                        alert('Import failed: ' + error.message);
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

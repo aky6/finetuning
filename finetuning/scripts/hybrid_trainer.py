@@ -40,7 +40,7 @@ class HybridTrainer:
 # Note: This is a hybrid approach where we train on TinyLlama
 # but apply the learned patterns to Llama 3.1 8B
 
-SYSTEM """You are a helpful AI assistant that has been fine-tuned for specific tasks. Use the knowledge and patterns learned during training to provide accurate and helpful responses."""
+        SYSTEM """You are a helpful AI assistant that has been fine-tuned for specific tasks. Use the knowledge and patterns learned during training to provide accurate and helpful responses."""
 
 # The model will use the base Llama 3.1 8B capabilities
 # enhanced with the fine-tuned patterns from training

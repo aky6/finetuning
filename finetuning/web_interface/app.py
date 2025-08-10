@@ -254,13 +254,13 @@ async def list_jobs():
 async def import_to_ollama(job_id: str):
     """Import trained model to Ollama using merge approach"""
     if job_id not in training_jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
+        return JSONResponse(status_code=404, content={"status": "error", "message": "Job not found"})
     
     job = training_jobs[job_id]
     
     # Use attribute access (job is a TrainingJob instance)
     if job.status != "completed":
-        raise HTTPException(status_code=400, detail="Job not completed")
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Job not completed"})
     
     try:
         import subprocess
@@ -280,7 +280,7 @@ async def import_to_ollama(job_id: str):
         )
         
         if result.returncode != 0:
-            return {"status": "error", "message": f"Merge failed: {result.stderr}"}
+            return JSONResponse(status_code=500, content={"status": "error", "message": f"Merge failed: {result.stderr}"})
         
         # Create a simple Modelfile for the merged model
         modelfile_content = f"""FROM tinyllama
@@ -313,12 +313,12 @@ SYSTEM \"\"\"You are a helpful assistant that has been fine-tuned on custom data
             os.remove(temp_modelfile)
         
         if result.returncode == 0:
-            return {"status": "success", "message": f"Model '{model_name}' imported successfully! You can now use it in your Ollama UI."}
+            return JSONResponse(content={"status": "success", "message": f"Model '{model_name}' imported successfully! You can now use it in your Ollama UI."})
         else:
-            return {"status": "error", "message": f"Ollama import failed: {result.stderr}"}
+            return JSONResponse(status_code=500, content={"status": "error", "message": f"Ollama import failed: {result.stderr}"})
             
     except Exception as e:
-        return {"status": "error", "message": f"Import failed: {str(e)}"}
+        return JSONResponse(status_code=500, content={"status": "error", "message": f"Import failed: {str(e)}"})
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8888)

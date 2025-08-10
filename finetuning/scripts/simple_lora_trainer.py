@@ -277,7 +277,7 @@ class SimpleLORATrainer:
         
         # Create Ollama Modelfile
         modelfile_content = f"""FROM {self.model_name}
-ADAPTER {ollama_dir}/adapter_model.safetensors
+ADAPTER ./adapter_model.safetensors
 
 TEMPLATE \"\"\"<|im_start|>user
 {{ .Prompt }}<|im_end|>

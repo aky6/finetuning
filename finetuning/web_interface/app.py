@@ -258,17 +258,26 @@ async def import_to_ollama(job_id: str):
     
     job = training_jobs[job_id]
     
-    if job["status"] != "completed":
+    # Use attribute access (job is a TrainingJob instance)
+    if job.status != "completed":
         raise HTTPException(status_code=400, detail="Job not completed")
     
     try:
         import subprocess
         import sys
+        from pathlib import Path
         
-        # Run the merge and export script
-        result = subprocess.run([
-            sys.executable, "merge_and_export.py"
-        ], capture_output=True, text=True, cwd="/Users/akash/code/ollam")
+        # Resolve repository root dynamically (two levels up from this file)
+        repo_root = Path(__file__).resolve().parents[2]
+        merge_script = repo_root / "merge_and_export.py"
+        
+        # Run the merge and export script from repo root
+        result = subprocess.run(
+            [sys.executable, str(merge_script)],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+        )
         
         if result.returncode != 0:
             return {"status": "error", "message": f"Merge failed: {result.stderr}"}
@@ -293,7 +302,7 @@ SYSTEM \"\"\"You are a helpful assistant that has been fine-tuned on custom data
             f.write(modelfile_content)
         
         # Create Ollama model
-        model_name = f"{job.get('config', {}).get('run_name', 'custom')}-finetuned"
+        model_name = f"{job.config.get('run_name', 'custom')}-finetuned"
         result = subprocess.run([
             "ollama", "create", model_name, "-f", temp_modelfile
         ], capture_output=True, text=True)

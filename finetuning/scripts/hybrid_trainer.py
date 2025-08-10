@@ -34,7 +34,7 @@ class HybridTrainer:
         os.makedirs(ollama_dir, exist_ok=True)
         
         # Create Modelfile that uses local Llama 3.1 8B
-        modelfile_content = f"""FROM llama3.1:8b
+        modelfile_content = f'''FROM llama3.1:8b
 
 # Apply fine-tuned patterns from {self.base_model}
 # Note: This is a hybrid approach where we train on TinyLlama
@@ -44,7 +44,7 @@ SYSTEM """You are a helpful AI assistant that has been fine-tuned for specific t
 
 # The model will use the base Llama 3.1 8B capabilities
 # enhanced with the fine-tuned patterns from training
-"""
+'''
         
         modelfile_path = f"{ollama_dir}/Modelfile"
         with open(modelfile_path, 'w') as f:

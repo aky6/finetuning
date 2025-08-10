@@ -64,13 +64,17 @@ class SimpleLORATrainer:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         
         # Load model with proper device mapping
-        if torch.backends.mps.is_available():
-            # For Apple Silicon, use CPU for now to avoid device mapping issues
+        # Force CPU device map on non-CUDA systems to avoid meta tensor issues
+        if torch.cuda.is_available():
+            device_map = "auto"
+            torch_dtype = torch.float16 if self.load_in_4bit else torch.float16
+        elif torch.backends.mps.is_available():
+            # For Apple Silicon, keep on CPU to avoid meta tensor and dtype issues
             device_map = "cpu"
             torch_dtype = torch.float32
         else:
-            device_map = "auto"
-            torch_dtype = torch.float16 if self.load_in_4bit else torch.float32
+            device_map = "cpu"
+            torch_dtype = torch.float32
         
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
@@ -78,7 +82,7 @@ class SimpleLORATrainer:
             device_map=device_map,
             trust_remote_code=True,
             torch_dtype=torch_dtype,
-            low_cpu_mem_usage=True,  # Add this to avoid meta tensor issues
+            low_cpu_mem_usage=True,  # Avoid meta tensor issues on CPU
         )
         
         # Configure LoRA

@@ -13,6 +13,10 @@ class HybridTrainer:
         self.base_model = base_model
         self.trainer = SimpleLORATrainer(model_name=base_model)
         
+    def prepare_dataset(self, jsonl_file: str):
+        """Delegate dataset preparation to the underlying simple trainer"""
+        return self.trainer.prepare_dataset(jsonl_file)
+
     def train(self, train_dataset, val_dataset, **kwargs):
         """Train LoRA on the base model (TinyLlama)"""
         logger.info(f"🔄 Training LoRA on {self.base_model}")

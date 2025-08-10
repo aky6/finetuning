@@ -16,9 +16,10 @@ import uuid
 
 # Import our custom modules
 import sys
-sys.path.append("../scripts")
+sys.path.append("/home/ubuntu/ollama-ai/finetuning/scripts")
 from data_processor import DataProcessor
 from simple_lora_trainer import SimpleLORATrainer
+from hybrid_trainer import HybridTrainer
 
 app = FastAPI(title="LoRA Fine-tuning Pipeline", version="1.0.0")
 
@@ -167,8 +168,12 @@ async def run_training_job(job: TrainingJob):
         job.progress = 30
         
         # Initialize trainer
+        # Check if using hybrid approach
+        if job.config["model_name"] == "hybrid-llama3.1":
+            trainer = HybridTrainer()
+        else:
+            trainer = SimpleLORATrainer(model_name=job.config["model_name"])
         job.add_log("Initializing LoRA trainer...")
-        trainer = SimpleLORATrainer(model_name=job.config["model_name"])
         job.progress = 40
         
         # Prepare datasets

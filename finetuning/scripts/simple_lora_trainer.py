@@ -133,7 +133,7 @@ class SimpleLORATrainer:
     def train(self, 
               train_dataset,
               val_dataset=None,
-               output_dir: str = "finetuning/models",
+              output_dir: str = "finetuning/models",
               num_train_epochs: int = 3,
               per_device_train_batch_size: int = 1,
               gradient_accumulation_steps: int = 4,
@@ -149,14 +149,11 @@ class SimpleLORATrainer:
         if self.model is None:
             self.load_model()
         
-        # Setup output directory (anchor to repo root to avoid CWD differences)
+        # Setup output directory
         if run_name is None:
             run_name = f"simple_lora_finetune_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        from pathlib import Path
-        repo_root = Path(__file__).resolve().parents[2]
-        output_base = repo_root / output_dir
-        full_output_dir = str(output_base / run_name)
+        full_output_dir = f"{output_dir}/{run_name}"
         os.makedirs(full_output_dir, exist_ok=True)
         
         # Configure Weights & Biases
@@ -255,11 +252,9 @@ class SimpleLORATrainer:
         """
         logger.info("Saving model for Ollama...")
         
-        # Create Ollama directory anchored at repo root
-        from pathlib import Path
-        repo_root = Path(__file__).resolve().parents[2]
-        ollama_dir_path = repo_root / f"finetuning/models/ollama_{model_name}"
-        os.makedirs(ollama_dir_path, exist_ok=True)
+        # Create Ollama directory
+        ollama_dir = f"finetuning/models/ollama_{model_name}"
+        os.makedirs(ollama_dir, exist_ok=True)
         
         # Copy model files (LoRA adapters will be merged during inference)
         import shutil
@@ -267,14 +262,14 @@ class SimpleLORATrainer:
             # Copy the adapter files
             for file in ["adapter_config.json", "adapter_model.safetensors"]:
                 src = os.path.join(model_dir, file)
-                dst = os.path.join(str(ollama_dir_path), file)
+                dst = os.path.join(ollama_dir, file)
                 if os.path.exists(src):
                     shutil.copy2(src, dst)
             
             # Copy tokenizer files
             for file in ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"]:
                 src = os.path.join(model_dir, file)
-                dst = os.path.join(str(ollama_dir_path), file)
+                dst = os.path.join(ollama_dir, file)
                 if os.path.exists(src):
                     shutil.copy2(src, dst)
         except Exception as e:
@@ -293,14 +288,14 @@ PARAMETER stop <|im_end|>
 PARAMETER stop <|im_start|>
 """
         
-        with open(str(ollama_dir_path / "Modelfile"), 'w') as f:
+        with open(f"{ollama_dir}/Modelfile", 'w') as f:
             f.write(modelfile_content)
         
-        logger.info(f"Model prepared for Ollama at: {ollama_dir_path}")
+        logger.info(f"Model prepared for Ollama at: {ollama_dir}")
         logger.info(f"To import into Ollama, run:")
-        logger.info(f"ollama create {model_name} -f {ollama_dir_path}/Modelfile")
+        logger.info(f"ollama create {model_name} -f {ollama_dir}/Modelfile")
         
-        return str(ollama_dir_path)
+        return ollama_dir
 
 def main():
     """Example usage"""

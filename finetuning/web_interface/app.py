@@ -31,6 +31,61 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 training_jobs = {}
 data_processor = DataProcessor()
 
+# Simple persistence for jobs across restarts
+JOBS_DIR = Path("finetuning/web_interface/finetuning/data")
+JOBS_INDEX_FILE = JOBS_DIR / "jobs_index.json"
+
+def serialize_job(job: "TrainingJob") -> dict:
+    return {
+        "job_id": job.job_id,
+        "csv_file": job.csv_file,
+        "config": job.config,
+        "status": job.status,
+        "progress": job.progress,
+        "logs": job.logs[-100:],
+        "start_time": job.start_time.isoformat() if job.start_time else None,
+        "end_time": job.end_time.isoformat() if job.end_time else None,
+        "model_path": job.model_path,
+    }
+
+def save_jobs_index():
+    try:
+        JOBS_DIR.mkdir(parents=True, exist_ok=True)
+        snapshot = [serialize_job(j) for j in training_jobs.values()]
+        with open(JOBS_INDEX_FILE, "w") as f:
+            json.dump(snapshot, f, indent=2)
+    except Exception:
+        pass
+
+def load_jobs_index():
+    try:
+        if JOBS_INDEX_FILE.exists():
+            with open(JOBS_INDEX_FILE, "r") as f:
+                items = json.load(f)
+            for it in items:
+                tj = TrainingJob(it.get("job_id"), it.get("csv_file"), it.get("config", {}))
+                tj.status = it.get("status", "queued")
+                tj.progress = it.get("progress", 0)
+                tj.logs = it.get("logs", [])
+                tj.start_time = datetime.fromisoformat(it["start_time"]) if it.get("start_time") else None
+                tj.end_time = datetime.fromisoformat(it["end_time"]) if it.get("end_time") else None
+                tj.model_path = it.get("model_path")
+                training_jobs[tj.job_id] = tj
+        else:
+            # Best-effort discovery from files if no index exists
+            for p in JOBS_DIR.glob("job_*_train.jsonl"):
+                job_id = p.name.split("_train.jsonl")[0].replace("job_", "")
+                cfg = {"epochs": 3, "batch_size": 1, "learning_rate": 2e-4, "model_name": "hybrid-llama3.1", "run_name": f"job_{job_id}", "use_wandb": False}
+                tj = TrainingJob(job_id, str(JOBS_DIR / f"job_{job_id}.jsonl"), cfg)
+                tj.status = "completed"
+                tj.progress = 100
+                training_jobs[job_id] = tj
+    except Exception:
+        pass
+
+# Load any previous jobs on startup
+load_jobs_index()
+
 class TrainingJob:
     def __init__(self, job_id: str, csv_file: str, config: dict):
         self.job_id = job_id
@@ -128,6 +183,7 @@ async def start_training(
         
         job = TrainingJob(job_id, str(csv_file), config)
         training_jobs[job_id] = job
+        save_jobs_index()
         
         # Start training in background
         background_tasks.add_task(run_training_job, job)
@@ -143,6 +199,7 @@ async def run_training_job(job: TrainingJob):
         job.status = "running"
         job.start_time = datetime.now()
         job.add_log("Starting training job...")
+        save_jobs_index()
         
         # Process CSV data
         job.add_log("Processing CSV data...")
@@ -210,11 +267,13 @@ async def run_training_job(job: TrainingJob):
         job.progress = 100
         job.end_time = datetime.now()
         job.add_log("Training completed successfully!")
+        save_jobs_index()
         
     except Exception as e:
         job.status = "failed"
         job.end_time = datetime.now()
         job.add_log(f"Training failed: {str(e)}")
+        save_jobs_index()
 
 @app.get("/job_status/{job_id}")
 async def get_job_status(job_id: str):

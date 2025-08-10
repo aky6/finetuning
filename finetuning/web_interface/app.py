@@ -309,75 +309,53 @@ async def list_jobs():
     
     return jobs_summary
 
+# in finetuning/web_interface/app.py
+
 @app.post("/import_to_ollama/{job_id}")
 async def import_to_ollama(job_id: str):
-    """Import trained model to Ollama using merge approach"""
+    """Import trained model to Ollama using the prepared Modelfile (no merge)."""
     if job_id not in training_jobs:
         return JSONResponse(status_code=404, content={"status": "error", "message": "Job not found"})
-    
+
     job = training_jobs[job_id]
-    
-    # Use attribute access (job is a TrainingJob instance)
+
     if job.status != "completed":
         return JSONResponse(status_code=400, content={"status": "error", "message": "Job not completed"})
-    
+
     try:
-        import subprocess
-        import sys
         from pathlib import Path
-        
-        # Resolve repository root dynamically (two levels up from this file)
+        import subprocess
+
+        # repo root: .../ollam
         repo_root = Path(__file__).resolve().parents[2]
-        merge_script = repo_root / "merge_and_export.py"
-        
-        # Run the merge and export script from repo root
+        run_name = job.config.get("run_name", "custom")
+
+        # prepared by SimpleLORATrainer.save_for_ollama()
+        ollama_dir = repo_root / f"finetuning/models/ollama_{run_name}"
+        modelfile_path = ollama_dir / "Modelfile"
+
+        if not modelfile_path.exists():
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": f"Modelfile not found at {modelfile_path}"}
+            )
+
         result = subprocess.run(
-            [sys.executable, str(merge_script)],
+            ["ollama", "create", run_name, "-f", str(modelfile_path)],
             capture_output=True,
             text=True,
-            cwd=str(repo_root),
+            cwd=str(ollama_dir),
         )
-        
-        if result.returncode != 0:
-            return JSONResponse(status_code=500, content={"status": "error", "message": f"Merge failed: {result.stderr}"})
-        
-        # Create a simple Modelfile for the merged model
-        modelfile_content = f"""FROM tinyllama
 
-TEMPLATE \"\"\"<|im_start|>user
-{{{{ .Prompt }}}}<|im_end|>
-<|im_start|>assistant
-\"\"\"
-
-PARAMETER stop <|im_end|>
-PARAMETER stop <|im_start|>
-
-SYSTEM \"\"\"You are a helpful assistant that has been fine-tuned on custom data to provide better responses. You have learned from {job.get('config', {}).get('run_name', 'custom')} training data.\"\"\"
-"""
-        
-        # Write temporary Modelfile
-        temp_modelfile = f"/tmp/modelfile_{job_id}"
-        with open(temp_modelfile, "w") as f:
-            f.write(modelfile_content)
-        
-        # Create Ollama model
-        model_name = f"{job.config.get('run_name', 'custom')}-finetuned"
-        result = subprocess.run([
-            "ollama", "create", model_name, "-f", temp_modelfile
-        ], capture_output=True, text=True)
-        
-        # Clean up temp file
-        import os
-        if os.path.exists(temp_modelfile):
-            os.remove(temp_modelfile)
-        
         if result.returncode == 0:
-            return JSONResponse(content={"status": "success", "message": f"Model '{model_name}' imported successfully! You can now use it in your Ollama UI."})
+            return JSONResponse(content={"status": "success", "message": f"Model '{run_name}' imported successfully!"})
         else:
-            return JSONResponse(status_code=500, content={"status": "error", "message": f"Ollama import failed: {result.stderr}"})
-            
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": f"Ollama import failed: {result.stderr or result.stdout}"}
+            )
+
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": f"Import failed: {str(e)}"})
-
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8888)

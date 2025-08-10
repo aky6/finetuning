@@ -141,7 +141,7 @@ class SimpleLORATrainer:
               warmup_steps: int = 5,
               logging_steps: int = 10,
               save_steps: int = 100,
-              use_wandb: bool = False,
+               use_wandb: bool = False,
               run_name: str = None):
         """
         Train the model with LoRA
@@ -156,7 +156,7 @@ class SimpleLORATrainer:
         full_output_dir = f"{output_dir}/{run_name}"
         os.makedirs(full_output_dir, exist_ok=True)
         
-        # Initialize wandb if requested
+        # Configure Weights & Biases
         if use_wandb:
             try:
                 import wandb
@@ -175,6 +175,9 @@ class SimpleLORATrainer:
             except ImportError:
                 logger.warning("wandb not installed, skipping wandb logging")
                 use_wandb = False
+        else:
+            # Ensure any implicit wandb usage is disabled
+            os.environ["WANDB_DISABLED"] = "true"
         
         # Training arguments
         training_args = TrainingArguments(
@@ -197,7 +200,8 @@ class SimpleLORATrainer:
             load_best_model_at_end=True if val_dataset else False,
             dataloader_pin_memory=False,  # Better for limited memory
             remove_unused_columns=False,
-            report_to="wandb" if use_wandb else None,
+            # Explicitly control reporting backends. Use empty list to disable.
+            report_to=["wandb"] if use_wandb else [],
             run_name=run_name,
         )
         

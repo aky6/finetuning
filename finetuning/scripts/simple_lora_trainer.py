@@ -255,7 +255,10 @@ class SimpleLORATrainer:
         # Create Ollama directory relative to repository root
         from pathlib import Path
         repo_root = Path(__file__).resolve().parents[2]  # Go up to repo root
-        ollama_dir = repo_root / f"finetuning/models/ollama_{model_name}"
+        
+        # Sanitize model name for Ollama (no spaces, special chars)
+        safe_model_name = model_name.replace(" ", "_").replace("-", "_")
+        ollama_dir = repo_root / f"finetuning/models/ollama_{safe_model_name}"
         os.makedirs(ollama_dir, exist_ok=True)
         
         # Copy model files (LoRA adapters will be merged during inference)
@@ -295,7 +298,7 @@ PARAMETER stop <|im_start|>
         
         logger.info(f"Model prepared for Ollama at: {ollama_dir}")
         logger.info(f"To import into Ollama, run:")
-        logger.info(f"ollama create {model_name} -f {ollama_dir}/Modelfile")
+        logger.info(f"ollama create {safe_model_name} -f {ollama_dir}/Modelfile")
         
         return ollama_dir
 

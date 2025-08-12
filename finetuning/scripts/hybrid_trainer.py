@@ -35,11 +35,15 @@ class HybridTrainer:
         
         # Create Ollama model directory relative to repository root
         repo_root = Path(__file__).resolve().parents[2]  # Go up to repo root
-        ollama_dir = repo_root / f"finetuning/models/ollama_{model_name}"
+        
+        # Sanitize model name for Ollama (no spaces, special chars)
+        safe_model_name = model_name.replace(" ", "_").replace("-", "_")
+        ollama_dir = repo_root / f"finetuning/models/ollama_{safe_model_name}"
         os.makedirs(ollama_dir, exist_ok=True)
         
         # Create Modelfile that uses local Llama 3.1 8B
         modelfile_content = f'''FROM llama3.1:8b
+ADAPTER ./adapter_model.safetensors
 
 # Apply fine-tuned patterns from {self.base_model}
 # Note: This is a hybrid approach where we train on TinyLlama
@@ -56,7 +60,7 @@ class HybridTrainer:
             f.write(modelfile_content)
         
         logger.info(f"📝 Created Modelfile: {modelfile_path}")
-        logger.info(f"🔧 To use: ollama create {model_name} -f {modelfile_path}")
+        logger.info(f"🔧 To use: ollama create {safe_model_name} -f {modelfile_path}")
         
         return ollama_dir
     def save_for_ollama(self, model_dir: str, model_name: str):

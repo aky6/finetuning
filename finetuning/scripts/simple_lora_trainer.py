@@ -252,8 +252,10 @@ class SimpleLORATrainer:
         """
         logger.info("Saving model for Ollama...")
         
-        # Create Ollama directory
-        ollama_dir = f"finetuning/models/ollama_{model_name}"
+        # Create Ollama directory relative to repository root
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[2]  # Go up to repo root
+        ollama_dir = repo_root / f"finetuning/models/ollama_{model_name}"
         os.makedirs(ollama_dir, exist_ok=True)
         
         # Copy model files (LoRA adapters will be merged during inference)

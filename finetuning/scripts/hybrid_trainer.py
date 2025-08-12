@@ -33,8 +33,9 @@ class HybridTrainer:
     def create_llama3_1_modelfile(self, model_dir: str, model_name: str = "llama3.1-finetuned"):
         """Create a Modelfile that uses Llama 3.1 8B with the trained patterns"""
         
-        # Create Ollama model directory
-        ollama_dir = f"finetuning/models/ollama_{model_name}"
+        # Create Ollama model directory relative to repository root
+        repo_root = Path(__file__).resolve().parents[2]  # Go up to repo root
+        ollama_dir = repo_root / f"finetuning/models/ollama_{model_name}"
         os.makedirs(ollama_dir, exist_ok=True)
         
         # Create Modelfile that uses local Llama 3.1 8B

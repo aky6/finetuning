@@ -16,7 +16,12 @@ import uuid
 
 # Import our custom modules
 import sys
-sys.path.append("/home/ubuntu/ollama-ai/finetuning/scripts")
+from pathlib import Path
+
+# Add the scripts directory to Python path (works for both local and EC2)
+scripts_dir = Path(__file__).parent.parent / "scripts"
+sys.path.append(str(scripts_dir))
+
 from data_processor import DataProcessor
 from simple_lora_trainer import SimpleLORATrainer
 from hybrid_trainer import HybridTrainer
@@ -32,7 +37,7 @@ training_jobs = {}
 data_processor = DataProcessor()
 
 # Simple persistence for jobs across restarts
-JOBS_DIR = Path("finetuning/web_interface/finetuning/data")
+JOBS_DIR = Path(__file__).parent.parent / "data"
 JOBS_INDEX_FILE = JOBS_DIR / "jobs_index.json"
 
 def serialize_job(job: "TrainingJob") -> dict:
@@ -311,7 +316,7 @@ async def list_jobs():
 
 @app.post("/import_to_ollama/{job_id}")
 async def import_to_ollama(job_id: str):
-    """Import trained model to Ollama using the prepared Modelfile (no merge)."""
+    """Import trained model to Ollama by merging LoRA with base model and converting to GGUF."""
     if job_id not in training_jobs:
         return JSONResponse(status_code=404, content={"status": "error", "message": "Job not found"})
 
@@ -323,38 +328,284 @@ async def import_to_ollama(job_id: str):
     try:
         from pathlib import Path
         import subprocess
+        import shutil
+        import logging
+
+        # Set up detailed logging
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"🚀 Starting import process for job {job_id}")
+        job.add_log(f"🚀 Starting import process for job {job_id}")
 
         # repo root: .../ollam
         repo_root = Path(__file__).resolve().parents[2]
         run_name = job.config.get("run_name", "custom")
+        safe_run_name = run_name.replace(" ", "_").replace("-", "_")
 
-        # prepared by SimpleLORATrainer.save_for_ollama()
-        ollama_dir = repo_root / f"finetuning/models/ollama_{run_name}"
-        modelfile_path = ollama_dir / "Modelfile"
+        logger.info(f"📁 Repo root: {repo_root}")
+        logger.info(f"🏷️ Run name: {run_name}")
+        logger.info(f"🔒 Safe run name: {safe_run_name}")
 
-        if not modelfile_path.exists():
-            return JSONResponse(
-                status_code=500,
-                content={"status": "error", "message": f"Modelfile not found at {modelfile_path}"}
-            )
+        # Paths
+        ollama_dir = repo_root / "finetuning" / "models" / f"ollama_{safe_run_name}"
+        llama_cpp_dir = repo_root / "llama.cpp"
+        merged_model_dir = repo_root / "merged_model"
+        
+        logger.info(f"📂 Ollama dir: {ollama_dir}")
+        logger.info(f"📂 Llama.cpp dir: {llama_cpp_dir}")
+        logger.info(f"📂 Merged model dir: {merged_model_dir}")
+        
+        if not ollama_dir.exists():
+            error_msg = f"Ollama directory not found: {ollama_dir}"
+            logger.error(error_msg)
+            job.add_log(f"❌ {error_msg}")
+            return JSONResponse(status_code=500, content={"status": "error", "message": error_msg})
 
+        # Check if adapter files exist
+        adapter_files = list(ollama_dir.glob("adapter_model.safetensors"))
+        config_files = list(ollama_dir.glob("adapter_config.json"))
+        
+        logger.info(f"🔍 Found {len(adapter_files)} adapter files: {adapter_files}")
+        logger.info(f"🔍 Found {len(config_files)} config files: {config_files}")
+        
+        if not adapter_files:
+            error_msg = f"No adapter_model.safetensors found in {ollama_dir}"
+            logger.error(error_msg)
+            job.add_log(f"❌ {error_msg}")
+            return JSONResponse(status_code=500, content={"status": "error", "message": error_msg})
+
+        # Step 1: Merge LoRA with base model
+        logger.info("🔄 Step 1: Starting LoRA merge process...")
+        job.add_log("🔄 Step 1: Starting LoRA merge process...")
+        
+        # Determine the correct base model name
+        ui_model_name = job.config.get("model_name", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+        
+        # Map UI model names to actual Hugging Face model names
+        model_mapping = {
+            "hybrid-llama3.1": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+            "TinyLlama/TinyLlama-1.1B-Chat-v1.0": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+            "microsoft/DialoGPT-medium": "microsoft/DialoGPT-medium",
+            "meta-llama/Llama-3.1-8B-Instruct": "meta-llama/Llama-3.1-8B-Instruct",
+            "meta-llama/Llama-3.2-3B-Instruct": "meta-llama/Llama-3.2-3B-Instruct",
+            "meta-llama/CodeLlama-7b-Instruct-hf": "meta-llama/CodeLlama-7b-Instruct-hf"
+        }
+        
+        actual_model_name = model_mapping.get(ui_model_name, ui_model_name)
+        logger.info(f"🔄 UI model name: {ui_model_name}")
+        logger.info(f"🔄 Actual model name: {actual_model_name}")
+        job.add_log(f"🔄 Using base model: {actual_model_name}")
+        
+        # Create a temporary script to merge the specific model
+        merge_script = f"""
+import os
+import glob
+import torch
+import logging
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import PeftModel
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def merge_and_export():
+    logger.info("🔄 Starting LoRA merge process...")
+    print("🔄 Starting LoRA merge process...")
+    
+    # Load the base model and tokenizer (CPU-safe)
+    model_name = '{actual_model_name}'
+    logger.info(f"📥 Loading base model: {{model_name}}")
+    print(f"📥 Loading base model: {{model_name}}")
+    
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    logger.info("✅ Tokenizer loaded successfully")
+    print("✅ Tokenizer loaded successfully")
+    
+    base_model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch.float32,
+        low_cpu_mem_usage=True,
+        device_map="cpu",
+    )
+    logger.info("✅ Base model loaded successfully")
+    print("✅ Base model loaded successfully")
+    
+    # Use the specific adapter from this job
+    adapter_path = '{ollama_dir}'
+    logger.info(f"📥 Loading LoRA adapter from: {{adapter_path}}")
+    print(f"📥 Loading LoRA adapter from: {{adapter_path}}")
+    
+    model = PeftModel.from_pretrained(base_model, adapter_path)
+    logger.info("✅ LoRA adapter loaded successfully")
+    print("✅ LoRA adapter loaded successfully")
+    
+    logger.info("🔗 Merging adapter with base model...")
+    print("🔗 Merging adapter with base model...")
+    # Merge the adapter weights into the base model
+    merged_model = model.merge_and_unload()
+    logger.info("✅ Model merge completed")
+    print("✅ Model merge completed")
+    
+    # Create output directory
+    output_dir = "{merged_model_dir}"
+    os.makedirs(output_dir, exist_ok=True)
+    logger.info(f"📁 Created output directory: {{output_dir}}")
+    print(f"📁 Created output directory: {{output_dir}}")
+    
+    logger.info(f"💾 Saving merged model to {{output_dir}}...")
+    print(f"💾 Saving merged model to {{output_dir}}...")
+    # Save the merged model
+    merged_model.save_pretrained(output_dir)
+    tokenizer.save_pretrained(output_dir)
+    
+    logger.info("✅ Model merged and saved successfully!")
+    print("✅ Model merged and saved successfully!")
+    return output_dir
+
+if __name__ == "__main__":
+    merge_and_export()
+"""
+        
+        # Write and run the merge script
+        merge_script_path = repo_root / "temp_merge_script.py"
+        logger.info(f"📝 Writing merge script to: {merge_script_path}")
+        
+        with open(merge_script_path, 'w') as f:
+            f.write(merge_script)
+        
+        logger.info("🚀 Executing merge script...")
+        job.add_log("🚀 Executing merge script...")
+        
         result = subprocess.run(
-            ["ollama", "create", run_name, "-f", str(modelfile_path)],
+            ["python3", str(merge_script_path)],
             capture_output=True,
             text=True,
-            cwd=str(ollama_dir),
+            cwd=repo_root
         )
+        
+        logger.info(f"📊 Merge script exit code: {result.returncode}")
+        logger.info(f"📤 Merge script stdout: {result.stdout}")
+        logger.info(f"📤 Merge script stderr: {result.stderr}")
+        
+        # Clean up temp script
+        merge_script_path.unlink()
+        logger.info("🧹 Cleaned up temporary merge script")
+        
+        if result.returncode != 0:
+            error_msg = f"Model merge failed: {result.stderr or result.stdout}"
+            logger.error(error_msg)
+            job.add_log(f"❌ {error_msg}")
+            return JSONResponse(status_code=500, content={"status": "error", "message": error_msg})
+        
+        logger.info("✅ Step 1 completed: Model merge successful")
+        job.add_log("✅ Step 1 completed: Model merge successful")
+
+        # Step 2: Convert merged model to GGUF
+        logger.info("🔄 Step 2: Starting GGUF conversion...")
+        job.add_log("🔄 Step 2: Starting GGUF conversion...")
+        
+        gguf_output = merged_model_dir / f"{safe_run_name}.gguf"
+        logger.info(f"📁 GGUF output path: {gguf_output}")
+        
+        convert_cmd = [
+            "python3", str(llama_cpp_dir / "convert_hf_to_gguf.py"),
+            str(merged_model_dir),
+            "--outfile", str(gguf_output)
+        ]
+        
+        logger.info(f"🚀 GGUF conversion command: {' '.join(convert_cmd)}")
+        job.add_log(f"🚀 Running GGUF conversion...")
+        
+        result = subprocess.run(convert_cmd, capture_output=True, text=True, cwd=llama_cpp_dir)
+        
+        logger.info(f"📊 GGUF conversion exit code: {result.returncode}")
+        logger.info(f"📤 GGUF conversion stdout: {result.stdout}")
+        logger.info(f"📤 GGUF conversion stderr: {result.stderr}")
+        
+        if result.returncode != 0:
+            error_msg = f"GGUF conversion failed: {result.stderr or result.stdout}"
+            logger.error(error_msg)
+            job.add_log(f"❌ {error_msg}")
+            return JSONResponse(status_code=500, content={"status": "error", "message": error_msg})
+        
+        # Check if GGUF file was created
+        if not gguf_output.exists():
+            error_msg = f"GGUF file was not created: {gguf_output}"
+            logger.error(error_msg)
+            job.add_log(f"❌ {error_msg}")
+            return JSONResponse(status_code=500, content={"status": "error", "message": error_msg})
+        
+        gguf_size = gguf_output.stat().st_size / (1024 * 1024)  # Size in MB
+        logger.info(f"📁 GGUF file created: {gguf_output} ({gguf_size:.2f} MB)")
+        job.add_log(f"✅ Step 2 completed: GGUF conversion successful ({gguf_size:.2f} MB)")
+
+        # Step 3: Create proper Modelfile with chat template
+        logger.info("🔄 Step 3: Creating Modelfile...")
+        job.add_log("🔄 Step 3: Creating Modelfile...")
+        
+        modelfile_content = f'''FROM ./{safe_run_name}.gguf
+
+TEMPLATE "{{{{- range .Messages }}}}<|{{{{ .Role }}}}|>
+{{{{ .Content }}}}</s>
+{{{{ end }}}}<|assistant|>
+"
+
+SYSTEM """You are a helpful AI assistant that has been fine-tuned for specific tasks. Use the knowledge and patterns learned during training to provide accurate and helpful responses."""
+
+PARAMETER stop <|system|>
+PARAMETER stop </s>
+PARAMETER stop <|user|>
+PARAMETER stop <|assistant|>
+'''
+        
+        modelfile_path = merged_model_dir / "Modelfile"
+        logger.info(f"📝 Writing Modelfile to: {modelfile_path}")
+        
+        with open(modelfile_path, 'w') as f:
+            f.write(modelfile_content)
+        
+        logger.info("✅ Modelfile created successfully")
+        job.add_log("✅ Step 3 completed: Modelfile created successfully")
+
+        # Step 4: Import to Ollama
+        logger.info("🔄 Step 4: Importing to Ollama...")
+        job.add_log("🔄 Step 4: Importing to Ollama...")
+        
+        ollama_cmd = ["ollama", "create", safe_run_name, "-f", str(modelfile_path)]
+        logger.info(f"🚀 Ollama create command: {' '.join(ollama_cmd)}")
+        
+        result = subprocess.run(ollama_cmd, capture_output=True, text=True)
+        
+        logger.info(f"📊 Ollama create exit code: {result.returncode}")
+        logger.info(f"📤 Ollama create stdout: {result.stdout}")
+        logger.info(f"📤 Ollama create stderr: {result.stderr}")
 
         if result.returncode == 0:
-            return JSONResponse(content={"status": "success", "message": f"Model '{run_name}' imported successfully!"})
+            success_msg = f"Model imported successfully as '{safe_run_name}'!"
+            logger.info(f"✅ {success_msg}")
+            job.add_log(f"✅ Step 4 completed: {success_msg}")
+            
+            # Verify the model exists in Ollama
+            verify_cmd = ["ollama", "list"]
+            verify_result = subprocess.run(verify_cmd, capture_output=True, text=True)
+            logger.info(f"📋 Ollama models: {verify_result.stdout}")
+            
+            return JSONResponse(content={"status": "success", "message": success_msg})
         else:
-            return JSONResponse(
-                status_code=500,
-                content={"status": "error", "message": f"Ollama import failed: {result.stderr or result.stdout}"}
-            )
+            error_msg = f"Ollama import failed: {result.stderr or result.stdout}"
+            logger.error(error_msg)
+            job.add_log(f"❌ Step 4 failed: {error_msg}")
+            return JSONResponse(status_code=500, content={"status": "error", "message": error_msg})
 
     except Exception as e:
-        return JSONResponse(status_code=500, content={"status": "error", "message": f"Import failed: {str(e)}"})
+        import traceback
+        error_msg = f"Import failed with exception: {str(e)}"
+        logger.error(error_msg)
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        job.add_log(f"❌ {error_msg}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": error_msg})
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8888)

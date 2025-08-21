@@ -168,6 +168,15 @@ finetuning/web_interface/finetuning/data/job_*_train.jsonl
 finetuning/web_interface/finetuning/data/job_*_val.jsonl
 finetuning/web_interface/finetuning/models/
 
+# Merged model files
+merged_model/*.gguf
+merged_model/tokenizer.model
+merged_model/config.json
+merged_model/Modelfile
+
+# WebUI secret key
+.webui_secret_key
+
 # Git
 .git/
 *.orig

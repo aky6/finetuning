@@ -9,7 +9,7 @@ from transformers import (
     BitsAndBytesConfig
 )
 from peft import LoraConfig, get_peft_model, TaskType
-from trl import SFTTrainer
+from trl import SFTTrainer, SFTConfig
 import pandas as pd
 from pathlib import Path
 import logging
@@ -109,24 +109,20 @@ class SimpleLORATrainer:
         data = []
         with open(jsonl_file, 'r', encoding='utf-8') as f:
             for line in f:
-                data.append(json.loads(line))
+                example = json.loads(line)
+                messages = example["messages"]
+                
+                # Format conversation for training
+                conversation = ""
+                for message in messages:
+                    if message["role"] == "user":
+                        conversation += f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{message['content']}<|eot_id|>"
+                    elif message["role"] == "assistant":
+                        conversation += f"<|start_header_id|>assistant<|end_header_id|>\n\n{message['content']}<|eot_id|>"
+                
+                data.append({"text": conversation})
         
-        # Format for training
-        formatted_data = []
-        for example in data:
-            messages = example["messages"]
-            
-            # Create training prompt using ChatML format
-            conversation = ""
-            for message in messages:
-                if message["role"] == "user":
-                    conversation += f"<|im_start|>user\n{message['content']}<|im_end|>\n"
-                elif message["role"] == "assistant":
-                    conversation += f"<|im_start|>assistant\n{message['content']}<|im_end|>\n"
-            
-            formatted_data.append({"text": conversation})
-        
-        dataset = Dataset.from_list(formatted_data)
+        dataset = Dataset.from_list(data)
         logger.info(f"Dataset prepared with {len(dataset)} examples")
         return dataset
     
@@ -179,30 +175,34 @@ class SimpleLORATrainer:
             # Ensure any implicit wandb usage is disabled
             os.environ["WANDB_DISABLED"] = "true"
         
-        # Training arguments
-        training_args = TrainingArguments(
+        # SFT Configuration
+        sft_config = SFTConfig(
             output_dir=full_output_dir,
             per_device_train_batch_size=per_device_train_batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
             warmup_steps=warmup_steps,
             num_train_epochs=num_train_epochs,
             learning_rate=learning_rate,
-            fp16=False,  # Disabled for Apple Silicon MPS compatibility
-            bf16=False,  # Disabled for CPU compatibility
+            fp16=False,   # Disabled for Apple Silicon MPS compatibility
+            bf16=False,   # Disabled for CPU compatibility
             logging_steps=logging_steps,
             optim="adamw_torch",
             weight_decay=0.01,
             lr_scheduler_type="linear",
             save_steps=save_steps,
             save_total_limit=3,
-            eval_strategy="steps" if val_dataset else "no",
+            eval_strategy="steps" if val_dataset else "no",  # ✅ correct param name
             eval_steps=save_steps if val_dataset else None,
             load_best_model_at_end=True if val_dataset else False,
-            dataloader_pin_memory=False,  # Better for limited memory
+            dataloader_pin_memory=False,
             remove_unused_columns=False,
-            # Explicitly control reporting backends. Use empty list to disable.
             report_to=["wandb"] if use_wandb else [],
             run_name=run_name,
+
+            # 👇 these belong in SFTConfig now
+            packing=False,
+            dataset_num_proc=2,
+            max_length=self.max_seq_length,   # ✅ correct parameter name
         )
         
         # Initialize trainer
@@ -210,7 +210,7 @@ class SimpleLORATrainer:
             model=self.model,
             train_dataset=train_dataset,
             eval_dataset=val_dataset,
-            args=training_args,
+            args=sft_config,
         )
         
         # Start training

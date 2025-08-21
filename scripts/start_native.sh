@@ -1,3 +1,5 @@
+
+
 #!/bin/bash
 
 echo "🚀 Starting Native Ollama with Web UI..."

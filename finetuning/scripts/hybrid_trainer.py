@@ -42,16 +42,16 @@ class HybridTrainer:
         os.makedirs(ollama_dir, exist_ok=True)
         
         # Create Modelfile that uses local Llama 3.1 8B
-        modelfile_content = f'''FROM llama3.1:8b
+        modelfile_content = f'''FROM tinyllama:latest
 ADAPTER ./adapter_model.safetensors
 
 # Apply fine-tuned patterns from {self.base_model}
 # Note: This is a hybrid approach where we train on TinyLlama
 # but apply the learned patterns to Llama 3.1 8B
 
-        SYSTEM """You are a helpful AI assistant that has been fine-tuned for specific tasks. Use the knowledge and patterns learned during training to provide accurate and helpful responses."""
+SYSTEM """You are a helpful AI assistant that has been fine-tuned for specific tasks. Use the knowledge and patterns learned during training to provide accurate and helpful responses."""
 
-# The model will use the base Llama 3.1 8B capabilities
+# The model will use the base TinyLlama capabilities
 # enhanced with the fine-tuned patterns from training
 '''
         

@@ -6,6 +6,15 @@
     <title>LoRA Fine-tuning Pipeline</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+    </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
     <div class="container mx-auto px-4 py-8" x-data="app()">
@@ -105,14 +114,14 @@
                     
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Model Name</label>
-                                            <select x-model="config.model_name" class="w-full border rounded px-3 py-2">
-                        <option value="TinyLlama/TinyLlama-1.1B-Chat-v1.0">TinyLlama 1.1B Chat (Fast, Recommended)</option>
-                        <option value="microsoft/DialoGPT-medium">DialoGPT Medium (774M) - Open Access</option>
-                        <option value="meta-llama/Llama-3.1-8B-Instruct">Llama 3.1 8B Instruct (Better Quality)</option>
-                        <option value="hybrid-llama3.1">🔄 Hybrid: Train on TinyLlama, Use Llama 3.1 8B (Recommended)</option>
-                        <option value="meta-llama/Llama-3.2-3B-Instruct">Llama 3.2 3B Instruct (Requires HF Access)</option>
-                        <option value="meta-llama/CodeLlama-7b-Instruct-hf">CodeLlama 7B (For Code Tasks)</option>
-                    </select>
+                        <select x-model="config.model_name" class="w-full border rounded px-3 py-2">
+                            <option value="TinyLlama/TinyLlama-1.1B-Chat-v1.0">TinyLlama 1.1B Chat (Fast, Recommended)</option>
+                            <option value="microsoft/DialoGPT-medium">DialoGPT Medium (774M) - Open Access</option>
+                            <option value="meta-llama/Llama-3.1-8B-Instruct">Llama 3.1 8B Instruct (Better Quality)</option>
+                            <option value="hybrid-llama3.1">🔄 Hybrid: Train on TinyLlama, Use Llama 3.1 8B (Recommended)</option>
+                            <option value="meta-llama/Llama-3.2-3B-Instruct">Llama 3.2 3B Instruct (Requires HF Access)</option>
+                            <option value="meta-llama/CodeLlama-7b-Instruct-hf">CodeLlama 7B (For Code Tasks)</option>
+                        </select>
                     </div>
                     
                     <div class="md:col-span-2">
@@ -134,8 +143,12 @@
                     <button type="button" @click="currentStep = 'preview'" class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
                         Back
                     </button>
-                    <button type="submit" class="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700">
-                        Start Training
+                    <button type="submit" class="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center space-x-2" :class="{ 'opacity-50 cursor-not-allowed': isTraining }" :disabled="isTraining">
+                        <svg x-show="isTraining" class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span x-text="isTraining ? 'Starting Training...' : 'Start Training'"></span>
                     </button>
                 </div>
             </form>
@@ -177,9 +190,28 @@
             </div>
             
             <div x-show="trainingStatus.status === 'completed'" class="mt-6">
-                <button @click="importToOllama" class="px-6 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
-                    Import to Ollama
+                <button @click="importToOllama" class="px-6 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 flex items-center space-x-2" :class="{ 'opacity-50 cursor-not-allowed': isImporting }" :disabled="isImporting">
+                    <svg x-show="isImporting" class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span x-text="isImporting ? 'Importing...' : 'Import to Ollama'"></span>
                 </button>
+                
+                <!-- Import Logs Section -->
+                <div x-show="isImporting || importLogs.length > 0" class="mt-4">
+                    <h3 class="text-lg font-medium mb-2">Import Process Logs</h3>
+                    <div class="bg-gray-900 text-green-400 p-4 rounded h-32 overflow-y-auto font-mono text-sm">
+                        <template x-for="log in importLogs">
+                            <div class="mb-1">
+                                <span x-text="log"></span>
+                            </div>
+                        </template>
+                        <div x-show="importLogs.length === 0" class="text-gray-500">
+                            No import logs yet...
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -246,6 +278,9 @@
                     logs: []
                 },
                 jobs: [],
+                isTraining: false,
+                isImporting: false,
+                importLogs: [],
                 
                 init() {
                     this.loadJobs();
@@ -283,6 +318,7 @@
                 
                 async startTraining() {
                     if (!this.csvData) return;
+                    this.isTraining = true;
                     
                     const formData = new FormData();
                     formData.append('file_id', this.csvData.file_id);
@@ -310,6 +346,8 @@
                         }
                     } catch (error) {
                         alert('Training failed: ' + error.message);
+                    } finally {
+                        this.isTraining = false;
                     }
                 },
                 
@@ -361,21 +399,58 @@
                 
                 async importToOllama() {
                     if (!this.currentJobId) return;
+                    this.isImporting = true;
+                    this.importLogs = []; // Clear previous logs
+                    
+                    // Add detailed logging to the UI
+                    this.addImportLog('🚀 Starting import process...');
+                    this.addImportLog(`📋 Job ID: ${this.currentJobId}`);
                     
                     try {
+                        this.addImportLog('📡 Sending import request to server...');
                         const response = await fetch(`/import_to_ollama/${this.currentJobId}`, {
                             method: 'POST'
                         });
                         
+                        this.addImportLog(`📊 Server response status: ${response.status}`);
+                        
                         const data = await response.json();
+                        this.addImportLog(`📄 Response data: ${JSON.stringify(data, null, 2)}`);
                         
                         if (response.ok) {
+                            this.addImportLog('✅ Import completed successfully!');
                             alert('Model imported successfully to Ollama!');
                         } else {
+                            this.addImportLog(`❌ Import failed: ${data.message}`);
                             alert('Import failed: ' + data.message);
                         }
                     } catch (error) {
+                        this.addImportLog(`💥 Network error: ${error.message}`);
                         alert('Import failed: ' + error.message);
+                    } finally {
+                        this.isImporting = false;
+                    }
+                },
+                
+                addImportLog(message) {
+                    const timestamp = new Date().toLocaleTimeString();
+                    const logEntry = `[${timestamp}] ${message}`;
+                    console.log(logEntry);
+                    
+                    // Add to import logs
+                    this.importLogs.push(logEntry);
+                    // Keep only last 50 log entries
+                    if (this.importLogs.length > 50) {
+                        this.importLogs = this.importLogs.slice(-50);
+                    }
+                    
+                    // Also add to training status logs if available
+                    if (this.trainingStatus && this.trainingStatus.logs) {
+                        this.trainingStatus.logs.push(logEntry);
+                        // Keep only last 50 log entries
+                        if (this.trainingStatus.logs.length > 50) {
+                            this.trainingStatus.logs = this.trainingStatus.logs.slice(-50);
+                        }
                     }
                 }
             }

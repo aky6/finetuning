@@ -155,6 +155,19 @@ settings.local.*
 uploads/
 data/uploads/
 
+# Fine-tuning jobs and models
+finetuning/data/jobs_index.json
+finetuning/data/job_*.jsonl
+finetuning/data/job_*_stats.json
+finetuning/data/job_*_train.jsonl
+finetuning/data/job_*_val.jsonl
+finetuning/models/
+finetuning/web_interface/finetuning/data/job_*.jsonl
+finetuning/web_interface/finetuning/data/job_*_stats.json
+finetuning/web_interface/finetuning/data/job_*_train.jsonl
+finetuning/web_interface/finetuning/data/job_*_val.jsonl
+finetuning/web_interface/finetuning/models/
+
 # Git
 .git/
 *.orig
